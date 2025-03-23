@@ -146,5 +146,6 @@ source myenv/bin/activate
 pip install jupyter
 pip install bash_kernel
 python -m bash_kernel.install
+pip install nbconvert
 
 echo "Installation complete. You can now use bash_kernel in Jupyter notebooks within VSCode."
