@@ -39,6 +39,11 @@ DOCKER_DOMAIN="registry-1.docker.io"
 GOOGLE_SUB="mirror"
 GOOGLE_DOMAIN="gcr.io"
 
+# Git String Variables (Assembled dynamically to avoid URL mangling)
+GIT_HOST="github.com"
+GIT_USER="yogibeard"
+GIT_REPO="STRSW-ILT-KA.git"
+
 
 # Update and install base packages
 
@@ -268,7 +273,10 @@ REPO_DIR="$HOME/Repos/STRSW-ILT-KA"
 mkdir -p "$HOME/Repos"
 
 if [ ! -d "$REPO_DIR" ]; then
-    git clone https://github.com "$REPO_DIR"
+    # Dynamically assemble the Git payload to prevent parsing corruption
+    FULL_GIT_URL="${SCHEME}://${GIT_HOST}/${GIT_USER}/${GIT_REPO}"
+    
+    git clone "$FULL_GIT_URL" "$REPO_DIR"
     echo "[OK] Repository cloned into $REPO_DIR"
 else
     echo "[INFO] Repository directory already exists at $REPO_DIR. Skipping clone."
