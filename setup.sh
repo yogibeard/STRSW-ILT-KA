@@ -9,6 +9,9 @@ PASSPHRASE=""
 
 LINUX_MACHINES=("kubmas1-1" "kubwor1-1" "kubwor1-2" "kubwor1-3")
 
+# IP mapping array to target and wipe stale keys precisely from known_hosts
+MACHINE_IPS=("192.168.0.61" "192.168.0.62" "192.168.0.63" "192.168.0.64")
+
 ONTAP_CLUSTERS=("Cluster1")
 
 VSERVER_NAMES=("Cluster1")
@@ -37,12 +40,48 @@ GOOGLE_SUB="mirror"
 GOOGLE_DOMAIN="gcr.io"
 
 
-# Update and install packages
+# Update and install base packages
 
 echo $LOCAL_SUDO_PASS | sudo -S apt update
 
+# Install requirements except code (code handled in dedicated cleanup/install block below)
 echo $LOCAL_SUDO_PASS | sudo -S apt install -y sshpass python3-pip python3.8-venv git
 
+
+# ==============================================================================
+# FIXED: Purge Old VSCode Binaries and Reset Shell Cache
+# ==============================================================================
+echo "=== Removing any pre-existing or broken VSCode installations ==="
+# Remove old apt installations and their residual configs
+echo $LOCAL_SUDO_PASS | sudo -S apt-get purge -y code
+echo $LOCAL_SUDO_PASS | sudo -S apt-get autoremove -y
+
+# Remove flatpak versions if your system accidentally picked one up
+if command -v flatpak &> /dev/null; then
+    echo $LOCAL_SUDO_PASS | sudo -S flatpak uninstall -y com.visualstudio.code &>/dev/null
+fi
+
+# CRITICAL: Clear the bash command lookup cache so it forgets old binary paths
+hash -r
+# ==============================================================================
+
+
+# ==============================================================================
+# FIXED: Automatic SSH known_hosts Sanitization Block
+# ==============================================================================
+echo "=== Purging stale SSH host signatures from known_hosts cache ==="
+if [ -f "$HOME/.ssh/known_hosts" ]; then
+    # Clear by Hostnames
+    for machine in "${LINUX_MACHINES[@]}"; do
+        ssh-keygen -f "$HOME/.ssh/known_hosts" -R "$machine" &>/dev/null
+    done
+    # Clear by explicit backend IP routes
+    for ip in "${MACHINE_IPS[@]}"; do
+        ssh-keygen -f "$HOME/.ssh/known_hosts" -R "$ip" &>/dev/null
+    done
+    echo "[OK] Local SSH host key cache sanitized."
+fi
+# ==============================================================================
 
 
 # Generate SSH key
@@ -93,11 +132,11 @@ copy_ssh_key_ontap() {
 
 
 
-# Function to install VSCode extensions from an array variable
+# Function to install VSCode extensions from an array variable using precise binary
 install_vscode_extensions() {
     for extension in "${VSCODE_EXTENSIONS[@]}"; do
         echo "Installing VSCode extension: $extension"
-        code --install-extension "$extension"
+        /usr/bin/code --install-extension "$extension"
     done
 }
 
@@ -141,7 +180,7 @@ for machine in "${LINUX_MACHINES[@]}"; do
                     next; 
                 }
                 { print }
-            ' \"$CONFIG_FILE\" > \"${CONFIG_FILE}.tmp\" && mv \"${CONFIG_FILE}.tmp\" \"$CONFIG_FILE\"
+            ' \"$CONFIG_FILE\" > \"\${CONFIG_FILE}.tmp\" && mv \"\${CONFIG_FILE}.tmp\" \"\$CONFIG_FILE\"
         fi
 
         # 2. Build the un-mangled hosts.toml file structure
@@ -155,7 +194,7 @@ for machine in "${LINUX_MACHINES[@]}"; do
         
         # 3. Reload engine configurations
         systemctl restart containerd
-        echo \"  [OK] Registry updates complete on $machine\"
+        echo \"  [OK] Registry updates complete on \$machine\"
     "
 done
 # ==============================================================================
@@ -170,16 +209,20 @@ for i in "${!ONTAP_CLUSTERS[@]}"; do
 done
 
 
-
-# Install VSCode extensions
-install_vscode_extensions
-
-
 # ==============================================================================
-# SECTION: Install kubectl 1.29 via Snap & Sync Kubeconfig
+# SECTION: Install Fresh VSCode via Apt & kubectl via Snap
 # ==============================================================================
-echo "=== Installing kubectl v1.29 on Jumphost ==="
+echo "=== Installing fresh stable VSCode via apt ==="
+echo $LOCAL_SUDO_PASS | sudo -S apt-get install -y code
+
+echo "=== Installing kubectl v1.29 on Jumphost via Snap ==="
 echo $LOCAL_SUDO_PASS | sudo -S snap install kubectl --channel=1.29/stable --classic
+
+echo "=== Waiting 5 seconds for background package paths to register ==="
+sleep 5
+
+# Force the shell to rebuild its executable hash map for the freshly installed code binary
+hash -r
 
 echo "=== Copying Cluster Configuration File from kubmas1-1 ==="
 mkdir -p "$HOME/.kube"
@@ -191,6 +234,10 @@ scp -o StrictHostKeyChecking=no root@kubmas1-1:/etc/kubernetes/admin.conf "$HOME
 chmod 600 "$HOME/.kube/config"
 echo "[OK] kubectl config is synchronized and secured."
 # ==============================================================================
+
+
+# Install VSCode extensions
+install_vscode_extensions
 
 
 echo "SSH key has been generated and copied to all specified machines and clusters."
@@ -212,18 +259,25 @@ echo "Installation complete. You can now use bash_kernel in Jupyter notebooks wi
 
 
 # ==============================================================================
-# NEW SECTION: Clone Git Repository and Launch VSCode
+# SECTION: Clone Git Repository into Custom Target and Launch VSCode via Absolute Path
 # ==============================================================================
 echo "=== Cloning STRSW-ILT-KA Git Repository ==="
 REPO_DIR="$HOME/Repos/STRSW-ILT-KA"
 
+# Create the custom parent Repos folder structure if missing
+mkdir -p "$HOME/Repos"
+
 if [ ! -d "$REPO_DIR" ]; then
-    git clone https://github.com/yogibeard/STRSW-ILT-KA.git "$REPO_DIR"
+    git clone https://github.com "$REPO_DIR"
     echo "[OK] Repository cloned into $REPO_DIR"
 else
     echo "[INFO] Repository directory already exists at $REPO_DIR. Skipping clone."
 fi
 
-echo "=== Launching Visual Studio Code ==="
-code "$REPO_DIR"
+echo "=== Launching Fresh Visual Studio Code ==="
+# Final shell lookup clear right before opening the editor
+hash -r
+
+# Force the definitive system binary path with a clean window wrapper
+/usr/bin/code --new-window "$REPO_DIR"
 # ==============================================================================
