@@ -167,28 +167,16 @@ CONFIG_FILE="/etc/containerd/config.toml"
 for machine in "${LINUX_MACHINES[@]}"; do
     echo "Processing registry mirror setup on: $machine"
     
-    # Executed via the recently copied root SSH keys
+    # Restored to working double quotes wrapper for perfect local variable execution
     ssh -o StrictHostKeyChecking=no "root@$machine" "
-        # 1. Clear containerd path_config to target v2 registry blocks precisely
         if [ -f \"$CONFIG_FILE\" ]; then
             [ ! -f \"${CONFIG_FILE}.bak\" ] && cp \"$CONFIG_FILE\" \"${CONFIG_FILE}.bak\"
             
-            awk '
-                /\[plugins\.\"io\.containerd\.cri\.v1\.images\"\.registry\]|\[plugins\.\x27io\.containerd\.cri\.v1\.images\x27\.registry\]/ { 
-                    in_registry = 1; 
-                    print; 
-                    next; 
-                }
-                in_registry && /config_path[[:space:]]*=/ { 
-                    print \"      config_path = \x27/etc/containerd/certs.d\x27\"; 
-                    in_registry = 0; 
-                    next; 
-                }
-                { print }
-            ' \"$CONFIG_FILE\" > \"\${CONFIG_FILE}.tmp\" && mv \"\${CONFIG_FILE}.tmp\" \"\$CONFIG_FILE\"
+            # Safe wildcard sed pattern replacement that ignores internal parsing blocks entirely
+            sed -i -E \"s|config_path[[:space:]]*=[[:space:]]*['\\\"][^'\\\"]*['\\\"]|config_path = '/etc/containerd/certs.d'|g\" \"$CONFIG_FILE\"
         fi
 
-        # 2. Build the un-mangled hosts.toml file structure
+        # Build the un-mangled hosts.toml file structure
         rm -rf /etc/containerd/certs.d/docker.io/*
         mkdir -p /etc/containerd/certs.d/docker.io
         
@@ -197,9 +185,9 @@ for machine in "${LINUX_MACHINES[@]}"; do
         echo '[host.\"${HOST_URL}\"]' >> /etc/containerd/certs.d/docker.io/hosts.toml
         echo '  capabilities = [\"pull\", \"resolve\"]' >> /etc/containerd/certs.d/docker.io/hosts.toml
         
-        # 3. Reload engine configurations
+        # Reload engine configurations
         systemctl restart containerd
-        echo \"  [OK] Registry updates complete on \$machine\"
+        echo \"  [OK] Registry updates complete on $machine\"
     "
 done
 # ==============================================================================
